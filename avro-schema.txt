@@ -1,0 +1,27 @@
+{
+  "type": "record",
+  "name": "User",
+  "namespace": "com.example",
+  "doc": "A simple schema representing a user profile.",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string",
+      "doc": "The unique identifier for the user."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "doc": "The full name of the user."
+    },
+    {
+      "name": "email",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null,
+      "doc": "The user's email address (optional)."
+    }
+  ]
+}

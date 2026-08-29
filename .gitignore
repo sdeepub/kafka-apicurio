@@ -1,0 +1,39 @@
+# === Python Virtual Environments ===
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# === Large Binary Connectors (Do not push to Git) ===
+*.jar
+
+# === Temporary & Local Data Dumps ===
+*.avsc_download
+user-schema.avsc.bak
+data/
+outputs/
+logs/
+*.log
+
+# === System & IDE Configurations ===
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+.DS_Store
+Thumbs.db
+
+# === Environmental Secrets ===
+.env
+.env.local
+*.pem
+*.key
