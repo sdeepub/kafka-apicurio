@@ -5,3 +5,9 @@ fastavro==1.12.2
 idna==3.19
 requests==2.34.2
 urllib3==2.7.0
+Flask==3.0.3
+Werkzeug==3.0.3
+Jinja2==3.1.4
+itsdangerous==2.2.0
+click==8.1.7
+blinker==1.8.2
