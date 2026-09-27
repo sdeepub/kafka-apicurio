@@ -5,7 +5,7 @@ import json
 import hashlib
 import threading
 import requests
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, request, redirect, url_for
 from confluent_kafka import Consumer, Producer, KafkaError
 from fastavro import parse_schema, schemaless_reader
 
@@ -18,11 +18,12 @@ DASHBOARD_LOGS = []
 TEMP_MAX = 40.0       
 PRESSURE_MAX = 120.0
 CURRENT_CONFIG_HASH = "unknown"
+AUTO_REFRESH_ACTIVE = True  # 👈 Dynamic flag to toggle auto-refresh state
 
 def log_to_dashboard(msg_text):
     global DASHBOARD_LOGS
-    DASHBOARD_LOGS.append(msg_text) # Kept raw text layout matching console style
-    if len(DASHBOARD_LOGS) > 25:  
+    DASHBOARD_LOGS.append(msg_text)
+    if len(DASHBOARD_LOGS) > 30:  
         DASHBOARD_LOGS.pop(0)
 
 HTML_TEMPLATE = """
@@ -30,14 +31,19 @@ HTML_TEMPLATE = """
 <html>
 <head>
     <title>Cloud IIoT Control Engine Dashboard</title>
-    <meta http-equiv="refresh" content="2">
+    {% if auto_refresh %}
+    <meta http-equiv="refresh" content="2"> <!-- Auto-refresh every 2 seconds if enabled -->
+    {% endif %}
     <style>
         body { font-family: monospace; background-color: #1a1a1a; color: #00ff00; padding: 25px; font-size: 14px; }
         .wrapper { max-width: 1050px; margin: 0 auto; }
-        .card { border: 1px solid #00ff00; padding: 18px; margin-bottom: 20px; border-radius: 4px; }
+        .card { border: 1px solid #00ff00; padding: 18px; margin-bottom: 20px; border-radius: 4px; position: relative; }
         .log-line { margin: 8px 0; color: #ffffff; line-height: 1.4; }
         .alarm { color: #ff3333; font-weight: bold; }
         .success { color: #33ff99; }
+        .btn { background: #00cc66; border: none; color: black; padding: 8px 12px; font-weight: bold; cursor: pointer; border-radius: 4px; font-family: monospace; }
+        .btn-off { background: #555; color: #fff; }
+        .toggle-container { position: absolute; top: 18px; right: 18px; }
     </style>
 </head>
 <body>
@@ -45,6 +51,15 @@ HTML_TEMPLATE = """
         <h2>🏭 Factory Telemetry Control Center (Live Cloud Ingestion Engine)</h2>
         <div class="card">
             <h3>📡 Active Boundaries (Pulled dynamically via Aiven Karapace)</h3>
+            <div class="toggle-container">
+                <form action="/toggle-refresh" method="post" style="margin:0;">
+                    {% if auto_refresh %}
+                        <input type="submit" class="btn" value="🔄 Auto-Refresh: ON">
+                    {% else %}
+                        <input type="submit" class="btn btn-off" value="⏹️ Auto-Refresh: OFF">
+                    {% endif %}
+                </form>
+            </div>
             <p>ℹ️ Current Configuration Fingerprint: <strong>{{ active_hash }}</strong></p>
             <p>🔥 Max Safe Temperature Threshold: <strong style="color:#ffcc00;">{{ max_temp }}°C</strong></p>
             <p>💨 Max Safe Pressure Threshold: <strong style="color:#00ccff;">{{ max_press }} PSI</strong></p>
@@ -69,8 +84,15 @@ def live_dashboard():
         logs=reversed(DASHBOARD_LOGS),
         max_temp=TEMP_MAX,
         max_press=PRESSURE_MAX,
-        active_hash=CURRENT_CONFIG_HASH[:8]
+        active_hash=CURRENT_CONFIG_HASH[:8],
+        auto_refresh=AUTO_REFRESH_ACTIVE
     )
+
+@app.route('/toggle-refresh', methods=['POST'])
+def toggle_refresh():
+    global AUTO_REFRESH_ACTIVE
+    AUTO_REFRESH_ACTIVE = not AUTO_REFRESH_ACTIVE
+    return redirect(url_for('live_dashboard'))
 
 def start_render_http_listener():
     bind_port = int(os.environ.get("PORT", 10000))
@@ -129,7 +151,7 @@ check_for_workflow_updates()
 consumer = Consumer({
     "bootstrap.servers": KAFKA_BOOTSTRAP,
     "group.id": CONSUMER_GROUP,
-    "auto.offset.reset": "latest", # Skip any old malformed backlog data strings
+    "auto.offset.reset": "latest", 
     "security.protocol": "SSL",
     "ssl.ca.location": "ca.pem",
     "ssl.certificate.location": "service.cert",
@@ -145,7 +167,6 @@ dlq_producer = Producer({
     "ssl.key.location": "service.key"
 })
 
-# Launch parallel web visualization engine
 threading.Thread(target=start_render_http_listener, daemon=True).start()
 print(f"🎧 Control engine active. Monitoring '{TOPIC_NAME}' stream...")
 
@@ -162,50 +183,50 @@ try:
 
         raw_bytes = msg.value()
         try:
-            # 🔍 SMART WIRE-FORMAT RESOLVER:
-            # If the byte array starts with magic byte \x00, check if we need to slice it safely.
             if len(raw_bytes) > 5 and raw_bytes[0] == 0:
-                # Test parsing the raw bytes starting at offset 5 vs offset 0 dynamically
                 try:
                     bytes_io = io.BytesIO(raw_bytes[5:])
                     record = schemaless_reader(bytes_io, avro_schema)
-                    # Verify fields parsed into standard real-world ranges instead of corrupted text
                     if not record.get("mc_name") or record.get("temp", 0) > 1000:
-                        raise ValueError("Slicing caused data misalignment")
+                        raise ValueError("Slicing misalignment")
                 except Exception:
-                    # Fallback to absolute raw array if slicing shifts data improperly
                     bytes_io = io.BytesIO(raw_bytes)
                     record = schemaless_reader(bytes_io, avro_schema)
             else:
                 bytes_io = io.BytesIO(raw_bytes)
                 record = schemaless_reader(bytes_io, avro_schema)
 
-            # Extract fields safely 
             mc_name = record.get("mc_name", "Unknown-Machine")
             temp = round(record.get("temp", 0.0), 1)
             pressure = round(record.get("pressure", 0.0), 1)
             config_ver = CURRENT_CONFIG_HASH[:8]
 
-            # Evaluate thresholds boundaries
             is_temp_breached = temp > TEMP_MAX
             is_press_breached = pressure > PRESSURE_MAX
 
-            # ==============================================================================
-            # 3. HIGH-PRECISION DESCRIPTIVE LOG GENERATOR
-            # ==============================================================================
             timestamp = time.strftime('%H:%M:%S')
             
+            # ==============================================================================
+            # 3. FIXED LOG OUTPUT DESIGN (Always displays both fields)
+            # ==============================================================================
             if is_temp_breached or is_press_breached:
                 breaches = []
+                context = []
+                
                 if is_temp_breached:
                     breaches.append(f"Temperature: {temp}°C (Limit: {TEMP_MAX}°C)")
+                else:
+                    context.append(f"Temperature: {temp}°C")
+                    
                 if is_press_breached:
                     breaches.append(f"Pressure: {pressure} PSI (Limit: {PRESSURE_MAX} PSI)")
+                else:
+                    context.append(f"Pressure: {pressure} PSI")
                 
-                # Dynamic Descriptive Alarm Layout String
-                log_output = f"[{timestamp}] 🚨 ALARM [Config v.{config_ver}]: Machine '{mc_name}' Breached Safe Operations! -> {' | '.join(breaches)}"
+                # Combine active breaches with normal context values seamlessly
+                context_str = f" | [{', '.join(context)}]" if context else ""
+                log_output = f"[{timestamp}] 🚨 ALARM [Config v.{config_ver}]: Machine '{mc_name}' Breached Safe Operations! -> {' | '.join(breaches)}{context_str}"
             else:
-                # Dynamic Clean Ingestion Layout String
                 log_output = f"[{timestamp}] 📥 Telemetry Logged [Offset {msg.offset()}][Config v.{config_ver}]: {mc_name} is normal ({temp}°C, {pressure} PSI)."
 
             print(log_output)
@@ -220,6 +241,6 @@ try:
             dlq_producer.flush()
 
 except KeyboardInterrupt:
-    print("\n🛑 Factory monitoring stopped safely.")
+    print("\n🛑 Cloud factory monitoring stopped safely.")
 finally:
     consumer.close()
