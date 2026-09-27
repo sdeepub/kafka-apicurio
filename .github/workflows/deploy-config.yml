@@ -1,0 +1,60 @@
+name: "Broadcast Machine Configuration to Aiven"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'machine-schema.avsc'
+      - 'machine-control.json'
+
+jobs:
+  publish-to-aiven:
+    runs-on: ubuntu-latest # Runs for free on GitHub's runners
+    steps:
+      - name: "Checkout Code Repository"
+        uses: actions/checkout@v4
+
+      - name: "Validate Configuration Layouts"
+        run: |
+          if ! jq empty machine-control.json; then
+            echo "❌ CRITICAL: machine-control.json contains malformed syntax!"
+            exit 1
+          fi
+          echo "✅ JSON format validation passed."
+
+      - name: "Register Avro Schema in Aiven Karapace"
+        run: |
+          # Read the raw Avro file and escape it cleanly into a JSON string
+          AVRO_CONTENT=$(cat machine-schema.avsc | jq -R -s '.')
+          
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            "${{ secrets.AIVEN_SCHEMA_REGISTRY_URL }}/subjects/machine-schema/versions" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"schema\": $AVRO_CONTENT
+            }")
+            
+          if [ "$RESPONSE" -ne 200 ] && [ "$RESPONSE" -ne 201 ]; then
+            echo "❌ Failed to register Avro schema. Server responded with: HTTP $RESPONSE"
+            exit 1
+          fi
+          echo "✅ Avro schema registered successfully."
+
+      - name: "Register Control JSON in Aiven Karapace"
+        run: |
+          CONTROL_CONTENT=$(cat machine-control.json | jq -R -s '.')
+          
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            "${{ secrets.AIVEN_SCHEMA_REGISTRY_URL }}/subjects/machine-control/versions" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"schema\": $CONTROL_CONTENT,
+              \"schemaType\": \"JSON\"
+            }")
+            
+          if [ "$RESPONSE" -ne 200 ] && [ "$RESPONSE" -ne 201 ]; then
+            echo "❌ Failed to register Control JSON. Server responded with: HTTP $RESPONSE"
+            exit 1
+          fi
+          echo "✅ Control JSON registered successfully."
