@@ -6,6 +6,8 @@ import random
 import threading
 import requests
 from flask import Flask, render_template_string, request, redirect
+from confluent_kafka import Producer
+from fastavro import parse_schema, schemaless_writer
 
 app = Flask(__name__)
 
