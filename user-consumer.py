@@ -1,13 +1,14 @@
 import io
 import requests
-from confluent_kafka import Consumer, KafkaError
+from confluent_kafka import Consumer, Producer, KafkaError
 from fastavro import parse_schema, schemaless_reader
 
 # 1. Configuration Setup
 KAFKA_BOOTSTRAP = "localhost:9092"
 TOPIC_NAME = "user-events"
+DLQ_TOPIC_NAME = "user-events-dlq"
 CONSUMER_GROUP = "python-avro-group"
-APICURIO_URL = "http://localhost:8080/apis/registry/v3/groups/default/artifacts/481ebcd6-801a-4c18-8915-8ededc077d41/versions/1/content"
+APICURIO_URL = "http://localhost:8080/apis/registry/v3/groups/default/artifacts/13e47313-0fd5-4a3e-8eb8-cd6c0bc4d3d3/versions/1/content"
 
 print("🔄 Connecting to Apicurio to pull data schema...")
 response = requests.get(APICURIO_URL)
@@ -27,6 +28,9 @@ consumer = Consumer({
 })
 
 consumer.subscribe([TOPIC_NAME])
+
+dlq_producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
+
 print(f"🎧 Consumer active. Listening to topic '{TOPIC_NAME}'...")
 
 try:
@@ -64,8 +68,16 @@ try:
             print(f"📥 Received Record [Offset {msg.offset()}]: {decoded_record}")
 
         except Exception as serialization_error:
-            print(f"⚠️ Caught a bad message packet: {serialization_error}")
-            print(f"Raw toxic packet data looked like: {raw_bytes}")
+            print(f"⚠️ Caught a bad message packet at Offset {msg.offset()}: {serialization_error}")
+            print(f"⏩ Rerouting raw toxic bytes to DLQ topic '{DLQ_TOPIC_NAME}'...")
+
+            # Send the unmodified raw byte sequence to the triage topic
+            dlq_producer.produce(
+                topic=DLQ_TOPIC_NAME,
+                value=raw_bytes,
+                headers=[("error_message", str(serialization_error).encode('utf-8'))]
+            )
+            dlq_producer.flush() # Ensure the write triggers instantly        
 
 except KeyboardInterrupt:
     print("\n🛑 Shutting down consumer nicely...")

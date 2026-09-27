@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "MachineMetrics",
+  "namespace": "com.factory",
+  "doc": "Pure structural data contract for machine telemetry.",
+  "fields": [
+    { "name": "mc_name", "type": "string", "doc": "Unique identifier of the factory machine." },
+    { "name": "temp", "type": "double", "doc": "Current operating temperature." },
+    { "name": "pressure", "type": "double", "doc": "Current operating pressure." }
+  ]
+}
