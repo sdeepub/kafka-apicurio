@@ -1,225 +1,162 @@
-import io
 import os
+import io
 import time
-import json
-import hashlib
+import struct
+import random
 import threading
 import requests
-from flask import Flask, render_template_string
-from confluent_kafka import Consumer, Producer, KafkaError
-from fastavro import parse_schema, schemaless_reader
+from flask import Flask, render_template_string, request, redirect
+from confluent_kafka import Producer
+from fastavro import parse_schema, schemaless_writer
 
-# ==============================================================================
-# 1. INTERACTIVE WEB PORTAL CONFIGURATION
-# ==============================================================================
 app = Flask(__name__)
 
-DASHBOARD_LOGS = []
-TEMP_MAX = 40.0       
-PRESSURE_MAX = 120.0
-CURRENT_CONFIG_HASH = "unknown"
+# Global Runtime Status Flags
+AUTO_GENERATOR_ACTIVE = False
+LATEST_DELIVERY_STATUS = "Awaiting deployment action..."
 
-def log_to_dashboard(msg_text):
-    global DASHBOARD_LOGS
-    DASHBOARD_LOGS.append(msg_text) # Kept raw text layout matching console style
-    if len(DASHBOARD_LOGS) > 25:  
-        DASHBOARD_LOGS.pop(0)
+# 1. Environment Configuration Setup
+KAFKA_BOOTSTRAP = os.environ.get("AIVEN_BOOTSTRAP_SERVER")
+AIVEN_REGISTRY_URL = os.environ.get("AIVEN_SCHEMA_REGISTRY_URL")
+TOPIC_NAME = "machine-events"
+SCHEMA_URL = f"{AIVEN_REGISTRY_URL}/subjects/machine-schema/versions/latest/schema"
+
+print("🔐 Unpacking secure Aiven SSL network keys...")
+with open("ca.pem", "w") as f: f.write(os.environ.get("AIVEN_CA_CERT", ""))
+with open("service.cert", "w") as f: f.write(os.environ.get("AIVEN_SERVICE_CERT", ""))
+with open("service.key", "w") as f: f.write(os.environ.get("AIVEN_SERVICE_KEY", ""))
+
+print("🔄 Syncing structural telemetry blueprint from Aiven Karapace...")
+response = requests.get(SCHEMA_URL, timeout=5.0)
+avro_schema = parse_schema(response.json())
+
+# Secure Mutual SSL Producer Mappings
+kafka_producer = Producer({
+    "bootstrap.servers": KAFKA_BOOTSTRAP,
+    "security.protocol": "SSL",
+    "ssl.ca.location": "ca.pem",
+    "ssl.certificate.location": "service.cert",
+    "ssl.key.location": "service.key"
+})
+
+def delivery_report(err, msg):
+    global LATEST_DELIVERY_STATUS
+    if err is not None:
+        LATEST_DELIVERY_STATUS = f"❌ Delivery failed: {err}"
+    else:
+        LATEST_DELIVERY_STATUS = f"🚀 Streamed! Offset: {msg.offset()} | Part: {msg.partition()} | Time: {time.strftime('%H:%M:%S')}"
+
+def send_to_kafka(mc_name, temp, pressure):
+    try:
+        payload = {"mc_name": mc_name, "temp": float(temp), "pressure": float(pressure)}
+        bytes_io = io.BytesIO()
+        schemaless_writer(bytes_io, avro_schema, payload)
+        raw_avro_binary = bytes_io.getvalue()
+
+        # Prepend Confluent 5-byte wire header wire chunk mapping
+        header = struct.pack(">bI", 0, 1)
+        final_payload = header + raw_avro_binary
+
+        kafka_producer.produce(TOPIC_NAME, value=final_payload, callback=delivery_report)
+        kafka_producer.flush()
+        return True
+    except Exception as e:
+        global LATEST_DELIVERY_STATUS
+        LATEST_DELIVERY_STATUS = f"❌ Serialization Error: {e}"
+        return False
+
+def background_random_generator():
+    global AUTO_GENERATOR_ACTIVE
+    machines = ["Press-01", "Press-02", "Press-03", "Press-04", "Press-05"]
+    while True:
+        if AUTO_GENERATOR_ACTIVE:
+            selected_machine = random.choice(machines)
+            temp = round(random.uniform(32.0, 68.0), 1)      
+            pressure = round(random.uniform(95.0, 155.0), 1)
+            send_to_kafka(selected_machine, temp, pressure)
+        time.sleep(1.5) 
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Cloud IIoT Control Engine Dashboard</title>
-    <meta http-equiv="refresh" content="2">
+    <title>IIoT Telemetry Injection Control Panel</title>
     <style>
-        body { font-family: monospace; background-color: #1a1a1a; color: #00ff00; padding: 25px; font-size: 14px; }
-        .wrapper { max-width: 1050px; margin: 0 auto; }
-        .card { border: 1px solid #00ff00; padding: 18px; margin-bottom: 20px; border-radius: 4px; }
-        .log-line { margin: 8px 0; color: #ffffff; line-height: 1.4; }
-        .alarm { color: #ff3333; font-weight: bold; }
-        .success { color: #33ff99; }
+        body { font-family: monospace; background-color: #1e1e24; color: #ffffff; padding: 25px; }
+        .box { max-width: 600px; margin: 0 auto; background: #2a2a35; padding: 20px; border-radius: 6px; }
+        .status { background: #000; padding: 10px; color: #00ff00; border-radius: 4px; margin: 15px 0; }
+        .btn { background: #00cc66; border: none; color: white; padding: 10px 15px; font-weight: bold; cursor: pointer; border-radius: 4px; }
+        .btn-stop { background: #ff3333; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; margin-bottom: 4px; color: #ffcc00; }
+        select, input[type="number"] { width: 98%; padding: 8px; border: 1px solid #444; background: #111; color: #fff; border-radius: 4px; font-family: monospace; }
     </style>
 </head>
 <body>
-    <div class="wrapper">
-        <h2>🏭 Factory Telemetry Control Center (Live Cloud Ingestion Engine)</h2>
-        <div class="card">
-            <h3>📡 Active Boundaries (Pulled dynamically via Aiven Karapace)</h3>
-            <p>ℹ️ Current Configuration Fingerprint: <strong>{{ active_hash }}</strong></p>
-            <p>🔥 Max Safe Temperature Threshold: <strong style="color:#ffcc00;">{{ max_temp }}°C</strong></p>
-            <p>💨 Max Safe Pressure Threshold: <strong style="color:#00ccff;">{{ max_press }} PSI</strong></p>
-        </div>
-        <div class="card">
-            <h3>📊 Live Pipeline Stream Analytics (Descriptive Formatting)</h3>
-            <div style="background-color: #000000; padding: 20px; border-radius: 4px; max-height: 450px; overflow-y: auto;">
-                {% for log in logs %}
-                    <div class="log-line {% if '🚨' in log %}alarm{% else %}success{% endif %}">{{ log }}</div>
-                {% endfor %}
+    <div class="box">
+        <h2>🏭 IIoT Telemetry Injection Engine (5-Machine Control)</h2>
+        <div class="status">📬 Latest Node Delivery Status:<br><strong>{{ status }}</strong></div>
+        
+        <h3>🤖 Mode A: Automated Multi-Asset Generation Loop</h3>
+        <form action="/toggle-auto" method="post">
+            {% if auto_active %}
+                <p>Status: <span style="color:#00ff00; font-weight:bold;">GENERATING 5-MACHINE STREAM (1.5s)</span></p>
+                <input type="submit" class="btn btn-stop" value="Stop Auto-Generator">
+            {% else %}
+                <p>Status: <span style="color:#888;">IDLE</span></p>
+                <input type="submit" class="btn" value="Start 5-Machine Stream Loop">
+            {% endif %}
+        </form>
+        <hr style="border: 0; border-top: 1px solid #444; margin: 20px 0;">
+        
+        <h3>✍️ Mode B: Manual Override Injection (Target Specific Asset)</h3>
+        <form action="/manual-send" method="post">
+            <div class="form-group">
+                <label>Target Machine Asset ID:</label>
+                <select name="mc_name">
+                    <option value="Press-01">Press-01</option>
+                    <option value="Press-02">Press-02</option>
+                    <option value="Press-03">Press-03</option>
+                    <option value="Press-04" selected>Press-04</option>
+                    <option value="Press-05">Press-05</option>
+                </select>
             </div>
-        </div>
+            <div class="form-group">
+                <label>Temperature (°C):</label>
+                <input type="number" step="0.1" name="temp" value="42.5" required>
+            </div>
+            <div class="form-group">
+                <label>Pressure (PSI):</label>
+                <input type="number" step="0.1" name="pressure" value="115.0" required>
+            </div>
+            <input type="submit" class="btn" style="background:#0099ff;" value="Fire Targeted Payload Packet">
+        </form>
     </div>
 </body>
 </html>
 """
 
 @app.route('/')
-def live_dashboard():
-    return render_template_string(
-        HTML_TEMPLATE,
-        logs=reversed(DASHBOARD_LOGS),
-        max_temp=TEMP_MAX,
-        max_press=PRESSURE_MAX,
-        active_hash=CURRENT_CONFIG_HASH[:8]
-    )
+def control_panel():
+    return render_template_string(HTML_TEMPLATE, status=LATEST_DELIVERY_STATUS, auto_active=AUTO_GENERATOR_ACTIVE)
 
-def start_render_http_listener():
+# 🔥 FIXED: Swapped 'method' to plural 'methods'
+@app.route('/toggle-auto', methods=['POST'])
+def toggle_auto():
+    global AUTO_GENERATOR_ACTIVE
+    AUTO_GENERATOR_ACTIVE = not AUTO_GENERATOR_ACTIVE
+    return redirect('/')
+
+# 🔥 FIXED: Swapped 'method' to plural 'methods'
+@app.route('/manual-send', methods=['POST'])
+def manual_send():
+    mc_name = request.form.get("mc_name")
+    temp = request.form.get("temp")
+    pressure = request.form.get("pressure")
+    send_to_kafka(mc_name, temp, pressure)
+    return redirect('/')
+
+if __name__ == '__main__':
+    threading.Thread(target=background_random_generator, daemon=True).start()
     bind_port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=bind_port, debug=False, use_reloader=False)
-
-# ==============================================================================
-# 2. CORE STREAM CONSUMER LOGIC (Smart Header Slicing)
-# ==============================================================================
-KAFKA_BOOTSTRAP = os.environ.get("AIVEN_BOOTSTRAP_SERVER")
-AIVEN_REGISTRY_URL = os.environ.get("AIVEN_SCHEMA_REGISTRY_URL")
-
-TOPIC_NAME = "machine-events"
-DLQ_TOPIC_NAME = "machine-events-dlq"
-CONSUMER_GROUP = "machine-monitor-group"
-
-SCHEMA_URL = f"{AIVEN_REGISTRY_URL}/subjects/machine-schema/versions/latest/schema"
-CONTROL_URL = f"{AIVEN_REGISTRY_URL}/subjects/machine-control/versions/latest/schema"
-
-print("🔐 Instantiating secure Aiven mutual authentication SSL certificates...")
-with open("ca.pem", "w") as f: f.write(os.environ.get("AIVEN_CA_CERT", ""))
-with open("service.cert", "w") as f: f.write(os.environ.get("AIVEN_SERVICE_CERT", ""))
-with open("service.key", "w") as f: f.write(os.environ.get("AIVEN_SERVICE_KEY", ""))
-
-last_config_check = 0
-CHECK_INTERVAL_SECONDS = 10.0 
-
-def check_for_workflow_updates():
-    global TEMP_MAX, PRESSURE_MAX, CURRENT_CONFIG_HASH
-    try:
-        res = requests.get(CONTROL_URL, timeout=5.0)
-        if res.status_code == 200:
-            raw_text = res.text
-            incoming_hash = hashlib.sha256(raw_text.encode('utf-8')).hexdigest()
-            
-            if incoming_hash != CURRENT_CONFIG_HASH:
-                CURRENT_CONFIG_HASH = incoming_hash
-                profile = json.loads(raw_text)
-                
-                TEMP_MAX = profile["rules"]["max_safe_temp"]
-                PRESSURE_MAX = profile["rules"]["max_safe_pressure"]
-                
-                print(f"📡 [CONFIG SYNC] Hash: {CURRENT_CONFIG_HASH[:8]} | Limits -> Temp: {TEMP_MAX}°C, Press: {PRESSURE_MAX} PSI")
-    except Exception as e:
-        print(f"⚠️ Cloud workflow sync warning: {e}")
-
-print("🔄 Connecting to Aiven Karapace to pull data layout schema...")
-schema_res = requests.get(SCHEMA_URL, timeout=5.0)
-if schema_res.status_code != 200:
-    print(f"❌ Critical structural schema pull failure. HTTP {schema_res.status_code}")
-    exit(1)
-avro_schema = parse_schema(schema_res.json())
-print("✅ Structural schema contract compiled successfully!")
-
-check_for_workflow_updates()
-
-consumer = Consumer({
-    "bootstrap.servers": KAFKA_BOOTSTRAP,
-    "group.id": CONSUMER_GROUP,
-    "auto.offset.reset": "latest", # Skip any old malformed backlog data strings
-    "security.protocol": "SSL",
-    "ssl.ca.location": "ca.pem",
-    "ssl.certificate.location": "service.cert",
-    "ssl.key.location": "service.key"
-})
-consumer.subscribe([TOPIC_NAME])
-
-dlq_producer = Producer({
-    "bootstrap.servers": KAFKA_BOOTSTRAP,
-    "security.protocol": "SSL",
-    "ssl.ca.location": "ca.pem",
-    "ssl.certificate.location": "service.cert",
-    "ssl.key.location": "service.key"
-})
-
-# Launch parallel web visualization engine
-threading.Thread(target=start_render_http_listener, daemon=True).start()
-print(f"🎧 Control engine active. Monitoring '{TOPIC_NAME}' stream...")
-
-try:
-    while True:
-        current_time = time.time()
-        if current_time - last_config_check > CHECK_INTERVAL_SECONDS:
-            check_for_workflow_updates()
-            last_config_check = current_time
-
-        msg = consumer.poll(0.5) 
-        if msg is None: continue
-        if msg.error(): print(f"Kafka Error: {msg.error()}"); break
-
-        raw_bytes = msg.value()
-        try:
-            # 🔍 SMART WIRE-FORMAT RESOLVER:
-            # If the byte array starts with magic byte \x00, check if we need to slice it safely.
-            if len(raw_bytes) > 5 and raw_bytes[0] == 0:
-                # Test parsing the raw bytes starting at offset 5 vs offset 0 dynamically
-                try:
-                    bytes_io = io.BytesIO(raw_bytes[5:])
-                    record = schemaless_reader(bytes_io, avro_schema)
-                    # Verify fields parsed into standard real-world ranges instead of corrupted text
-                    if not record.get("mc_name") or record.get("temp", 0) > 1000:
-                        raise ValueError("Slicing caused data misalignment")
-                except Exception:
-                    # Fallback to absolute raw array if slicing shifts data improperly
-                    bytes_io = io.BytesIO(raw_bytes)
-                    record = schemaless_reader(bytes_io, avro_schema)
-            else:
-                bytes_io = io.BytesIO(raw_bytes)
-                record = schemaless_reader(bytes_io, avro_schema)
-
-            # Extract fields safely 
-            mc_name = record.get("mc_name", "Unknown-Machine")
-            temp = round(record.get("temp", 0.0), 1)
-            pressure = round(record.get("pressure", 0.0), 1)
-            config_ver = CURRENT_CONFIG_HASH[:8]
-
-            # Evaluate thresholds boundaries
-            is_temp_breached = temp > TEMP_MAX
-            is_press_breached = pressure > PRESSURE_MAX
-
-            # ==============================================================================
-            # 3. HIGH-PRECISION DESCRIPTIVE LOG GENERATOR
-            # ==============================================================================
-            timestamp = time.strftime('%H:%M:%S')
-            
-            if is_temp_breached or is_press_breached:
-                breaches = []
-                if is_temp_breached:
-                    breaches.append(f"Temperature: {temp}°C (Limit: {TEMP_MAX}°C)")
-                if is_press_breached:
-                    breaches.append(f"Pressure: {pressure} PSI (Limit: {PRESSURE_MAX} PSI)")
-                
-                # Dynamic Descriptive Alarm Layout String
-                log_output = f"[{timestamp}] 🚨 ALARM [Config v.{config_ver}]: Machine '{mc_name}' Breached Safe Operations! -> {' | '.join(breaches)}"
-            else:
-                # Dynamic Clean Ingestion Layout String
-                log_output = f"[{timestamp}] 📥 Telemetry Logged [Offset {msg.offset()}][Config v.{config_ver}]: {mc_name} is normal ({temp}°C, {pressure} PSI)."
-
-            print(log_output)
-            log_to_dashboard(log_output)
-
-        except Exception as structural_error:
-            timestamp = time.strftime('%H:%M:%S')
-            poison_msg = f"[{timestamp}] ⚠️ Caught Poison Pill at Offset {msg.offset()}: {structural_error} -> Routing to DLQ."
-            print(poison_msg)
-            log_to_dashboard(poison_msg)
-            dlq_producer.produce(DLQ_TOPIC_NAME, value=raw_bytes)
-            dlq_producer.flush()
-
-except KeyboardInterrupt:
-    print("\n🛑 Factory monitoring stopped safely.")
-finally:
-    consumer.close()
+    app.run(host='0.0.0.0', port=bind_port)
