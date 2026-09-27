@@ -232,6 +232,41 @@ try:
             print(log_output)
             log_to_dashboard(log_output)
 
+            # ==============================================================================
+            # 4. INFLUXDB CLOUD SERVERLESS EVENT STREAM COURIER (REST API WRITE)
+            # ==============================================================================
+            INFLUX_URL = os.environ.get("INFLUXDB_URL")
+            INFLUX_TOKEN = os.environ.get("INFLUXDB_TOKEN")
+            INFLUX_ORG = os.environ.get("INFLUXDB_ORG")
+            BUCKET = "machine_telemetry"
+
+            if INFLUX_URL and INFLUX_TOKEN and INFLUX_ORG:
+                # Format metrics precisely into InfluxDB Time-Series Line Protocol syntax
+                # Structure: measurement,tag_key=tag_val field_key=field_val,field_key2=field_val2
+                line_protocol_payload = f"telemetry,machine_id={mc_name} temp={temp},pressure={pressure}"
+                
+                # Execute high-speed asynchronous REST payload transmission
+                def transmit_to_influx_async(url, org, bucket, token, data):
+                    try:
+                        write_endpoint = f"{url}/api/v2/write?org={org}&bucket={bucket}&precision=s"
+                        headers = {
+                            "Authorization": f"Token {token}",
+                            "Content-Type": "text/plain; charset=utf-8"
+                        }
+                        res = requests.post(write_endpoint, data=data, headers=headers, timeout=2.0)
+                        if res.status_code != 204:
+                            print(f"⚠️ InfluxDB Write Warning: HTTP {res.status_code} - {res.text}")
+                    except Exception as ex:
+                        print(f"⚠️ InfluxDB network connection drop: {ex}")
+
+                # Launch writing routine inside an detached light thread to prevent Kafka consumer latency
+                threading.Thread(
+                    target=transmit_to_influx_async, 
+                    args=(INFLUX_URL, INFLUX_ORG, BUCKET, INFLUX_TOKEN, line_protocol_payload),
+                    daemon=True
+                ).start()
+
+            
         except Exception as structural_error:
             timestamp = time.strftime('%H:%M:%S')
             poison_msg = f"[{timestamp}] ⚠️ Caught Poison Pill at Offset {msg.offset()}: {structural_error} -> Routing to DLQ."
