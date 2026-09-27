@@ -1,86 +1,120 @@
+import os
 import io
 import time
+import json
+import hashlib
 import requests
 from confluent_kafka import Consumer, Producer, KafkaError
 from fastavro import parse_schema, schemaless_reader
 
-# 1. Configuration Setup
-KAFKA_BOOTSTRAP = "localhost:9092"
+# 1. Environment Configuration Extraction
+# (Render will supply these parameters dynamically into the container space)
+KAFKA_BOOTSTRAP = os.environ.get("AIVEN_BOOTSTRAP_SERVER")
+AIVEN_REGISTRY_URL = os.environ.get("AIVEN_SCHEMA_REGISTRY_URL")
+
 TOPIC_NAME = "machine-events"
 DLQ_TOPIC_NAME = "machine-events-dlq"
 CONSUMER_GROUP = "machine-monitor-group"
 
-# Hardcoded version tracker matching your current active Apicurio artifact phase
-MANUAL_CONTROL_VERSION = 3  # 👈 Toggle this to 1, 2, or 3 as you evolve rules!
+# Aiven Karapace Schema Registry endpoint formats
+SCHEMA_URL = f"{AIVEN_REGISTRY_URL}/subjects/machine-schema/versions/latest/schema"
+CONTROL_URL = f"{AIVEN_REGISTRY_URL}/subjects/machine-control/versions/latest/schema"
 
-APICURIO_SCHEMA_URL = "http://localhost:8080/apis/registry/v3/groups/default/artifacts/machine-schema/versions/1/content"
-# Direct resource path targeting the specific version content you want to lock down
-APICURIO_CONTROL_URL = f"http://localhost:8080/apis/registry/v3/groups/default/artifacts/machine-control/versions/{MANUAL_CONTROL_VERSION}/content"
+# 2. Writing Mutual SSL Authentication Certs on the Fly
+# Aiven requires raw text certs to reside inside local files for the underlying C library (librdkafka)
+print("🔐 Instantiating secure Aiven mutual authentication SSL certificates...")
+with open("ca.pem", "w") as f: f.write(os.environ.get("AIVEN_CA_CERT", ""))
+with open("service.cert", "w") as f: f.write(os.environ.get("AIVEN_SERVICE_CERT", ""))
+with open("service.key", "w") as f: f.write(os.environ.get("AIVEN_SERVICE_KEY", ""))
 
-# Global threshold variables
+# Global threshold runtime variables
 TEMP_MAX = 50.0
 PRESSURE_MAX = 150.0
+CURRENT_CONFIG_HASH = "" 
 last_config_check = 0
 CHECK_INTERVAL_SECONDS = 10.0 
 
-def fetch_latest_control_rules():
-    global TEMP_MAX, PRESSURE_MAX
+def check_for_workflow_updates():
+    global TEMP_MAX, PRESSURE_MAX, CURRENT_CONFIG_HASH
     try:
-        # Request the explicit version rules content payload
-        control_res = requests.get(APICURIO_CONTROL_URL, timeout=2.0)
-        
-        if control_res.status_code == 200:
-            profile = control_res.json()
-            TEMP_MAX = profile["rules"]["max_safe_temp"]
-            PRESSURE_MAX = profile["rules"]["max_safe_pressure"]
+        # Aiven Karapace provides the raw schema layout text under credentials if configured
+        res = requests.get(CONTROL_URL, timeout=5.0)
+        if res.status_code == 200:
+            raw_text = res.text
+            
+            # Compute distinct thumbprint hash signatures
+            incoming_hash = hashlib.sha256(raw_text.encode('utf-8')).hexdigest()
+            
+            if incoming_hash != CURRENT_CONFIG_HASH:
+                CURRENT_CONFIG_HASH = incoming_hash
+                profile = json.loads(raw_text)
+                
+                TEMP_MAX = profile["rules"]["max_safe_temp"]
+                PRESSURE_MAX = profile["rules"]["max_safe_pressure"]
+                
+                print(f"\n📡 [CLOUD RECONCILIATION] New GitOps Rule Profile Swapped via Aiven!")
+                print(f"🔑 Active Config Hash thumbprint: {CURRENT_CONFIG_HASH[:8]}")
+                print(f"⚙️ Operational Constraints Updated -> Max Temp: {TEMP_MAX}°C | Max Pressure: {PRESSURE_MAX} PSI\n")
     except Exception as e:
-        print(f"⚠️ Warning: Could not refresh control rules from Apicurio: {e}")
+        print(f"⚠️ Cloud workflow sync warning: {e}")
 
-# 2. Sequential System Initialization Flow
-print("🔄 Booting system. Pulling initial data layout schema...")
-schema_res = requests.get(APICURIO_SCHEMA_URL)
-if schema_res.status_code != 200:
-    print("❌ Critical structural schema pull failure.")
+# 3. System Initialization Sequence
+print("🔄 Connecting to Aiven Karapace to pull data layout schema...")
+try:
+    schema_res = requests.get(SCHEMA_URL, timeout=5.0)
+    if schema_res.status_code != 200:
+        print(f"❌ Critical structural schema pull failure. HTTP {schema_res.status_code}")
+        exit(1)
+    avro_schema = parse_schema(schema_res.json())
+    print("✅ Structural schema contract compiled successfully!")
+except Exception as e:
+    print(f"❌ Failed to parse schema configuration from registry: {e}")
     exit(1)
 
-avro_schema = parse_schema(schema_res.json())
+check_for_workflow_updates() 
 
-# Fetch the static schema version content properties
-fetch_latest_control_rules() 
-
-# 3. Kafka Stream Client Configuration
+# 4. Strict Secure Aiven Cloud Stream Consumers Setup
 consumer = Consumer({
     "bootstrap.servers": KAFKA_BOOTSTRAP,
     "group.id": CONSUMER_GROUP,
-    "auto.offset.reset": "earliest"
+    "auto.offset.reset": "earliest",
+    "security.protocol": "SSL",
+    "ssl.ca.location": "ca.pem",
+    "ssl.certificate.location": "service.cert",
+    "ssl.key.location": "service.key"
 })
 consumer.subscribe([TOPIC_NAME])
-dlq_producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
 
-# Confirmation output explicitly uses your local static version parameter
-print(f"🎧 Control engine active. Monitoring '{TOPIC_NAME}' stream... [Current Config Rule Profile: v.{MANUAL_CONTROL_VERSION}]")
+# Secure Aiven Cloud Dead Letter Queue Producer Link
+dlq_producer = Producer({
+    "bootstrap.servers": KAFKA_BOOTSTRAP,
+    "security.protocol": "SSL",
+    "ssl.ca.location": "ca.pem",
+    "ssl.certificate.location": "service.cert",
+    "ssl.key.location": "service.key"
+})
 
-# 4. Stream Ingestion Processing Routing Engine
+print(f"🎧 Control engine active. Monitoring Aiven stream on '{TOPIC_NAME}'...")
+
+# 5. Ingestion Processing Loop
 try:
     while True:
-        # Check Apicurio for active configuration rules adaptations periodically
         current_time = time.time()
         if current_time - last_config_check > CHECK_INTERVAL_SECONDS:
-            fetch_latest_control_rules()
+            check_for_workflow_updates()
             last_config_check = current_time
 
         msg = consumer.poll(0.5) 
         if msg is None: continue
-        if msg.error(): print(f"Kafka Error: {msg.error()}"); break
+        if msg.error(): print(f"Kafka Cloud Error: {msg.error()}"); break
 
         raw_bytes = msg.value()
         try:
-            # Wire format extraction check (Strip the 5-byte header chunk cleanly if spoofed)
+            # Wire format layout check (Slices off the 5-byte identifier chunk cleanly if present)
             actual_avro_bytes = raw_bytes[5:] if len(raw_bytes) > 5 and raw_bytes[0] == 0 else raw_bytes
             bytes_io = io.BytesIO(actual_avro_bytes)
             record = schemaless_reader(bytes_io, avro_schema)
             
-            # Evaluate telemetry metrics records against current control profile boundaries
             breaches = []
             if record["temp"] > TEMP_MAX:
                 breaches.append(f"Temperature: {record['temp']}°C (Limit: {TEMP_MAX}°C)")
@@ -88,17 +122,16 @@ try:
                 breaches.append(f"Pressure: {record['pressure']} PSI (Limit: {PRESSURE_MAX} PSI)")
                 
             if breaches:
-                print(f"🚨 ALARM [Config v.{MANUAL_CONTROL_VERSION}]: Machine '{record['mc_name']}' Breached Safe Operations! -> {' | '.join(breaches)}")
+                print(f"🚨 ALARM [Hash: {CURRENT_CONFIG_HASH[:8]}]: Machine '{record['mc_name']}' Breached Boundaries! -> {' | '.join(breaches)}")
             else:
-                print(f"📥 Telemetry Logged [Offset {msg.offset()}][Config v.{MANUAL_CONTROL_VERSION}]: {record['mc_name']} is normal ({record['temp']}°C, {record['pressure']} PSI).")
+                print(f"📥 Telemetry Logged [Offset {msg.offset()}][Hash: {CURRENT_CONFIG_HASH[:8]}]: {record['mc_name']} is stable.")
 
         except Exception as structural_error:
-            # Drop malformed packets directly out to the Dead Letter Queue highway 
-            print(f"⚠️ Caught Structural Poison Pill at Offset {msg.offset()}: {structural_error}")
+            print(f"⚠️ Caught Structural Poison Pill at Cloud Offset {msg.offset()}: {structural_error}")
             dlq_producer.produce(DLQ_TOPIC_NAME, value=raw_bytes)
             dlq_producer.flush()
 
 except KeyboardInterrupt:
-    print("\n🛑 Factory monitoring stopped safely.")
+    print("\n🛑 Cloud factory monitoring stopped safely.")
 finally:
     consumer.close()
