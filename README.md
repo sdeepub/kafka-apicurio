@@ -1,108 +1,56 @@
-### Getting Started & Initialization Protocol
+## 🏭 IIoT Machine Telemetry & Control Engine (Cloud Demo)
 
-Follow this checklist to clone, initialize, and spin up the complete distributed streaming pipeline.
+A cloud-native, end-to-end Industrial IoT (IIoT) data streaming pipeline. This system processes telemetry across **5 distinct press machines**, enforces dynamic operational thresholds using a split-schema GitOps architecture, reroutes structural anomalies to a Dead Letter Queue (DLQ), and exposes interactive web dashboards.
 
-### 1. Re-Download Heavy Binary SQL Connectors
-Due to storage constraint tracking, heavy compiled Java class libraries are omitted from Git tracking matrices. Download the verified fat JAR files directly into your project path:
+### 🏗️ Cloud Infrastructure Architecture
 
-```bash
-curl -L -o ./flink-sql-connector-kafka-3.1.0-1.18.jar https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar
-
-curl -L -O https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-avro-confluent-registry/1.18.1/flink-sql-avro-confluent-registry-1.18.1.jar
-```
-
-### 2. Initialize the Python Virtual Environment
-Build an isolated sandbox dependencies cluster for your local execution processes:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install confluent-kafka fastavro requests apicurio-registry-sdk
-```
-
-### 3. Spin Up the Core Distributed Systems Infrastructure
-Use Docker Compose to launch your cluster container ecosystem services in the background:
-
-```bash
-docker compose up -d
-```
-*Verify that all containers (Kafka, Apicurio Backend, Apicurio UI, Kafbat UI, Flink JobManager, Flink TaskManager) are running stably with `docker ps`.*
+*   **Compute (Render):** Hosts two interactive Python services (Producer Controller & Consumer Dashboard).
+*   **Data & Schema Registry (Aiven):** Managed cloud Apache Kafka 4.2 broker and Karapace Registry (mTLS protected).
+*   **Automation (GitHub Actions):** Continuous Integration/Deployment loop for serverless schema and rule provisioning.
 
 ---
 
-## Verification and Runtime Execution
+### 🚀 Live Demo Operation Steps
 
-### Step 1: Upload the Telemetry Contract Template
-1. Open your web browser and navigate to the Apicurio Visual Web Console: `http://localhost:8888`.
-2. Click **Upload Artifact**. Set the **Group** parameter to `default` and input the **Artifact ID** exactly as: `481ebcd6-801a-4c18-8915-8ededc077d41`.
-3. Choose **AVRO** as the document type schema format and paste the tracking matrix into the template canvas:
+#### 1. Generate Telemetry (The Producer Panel)
+*   Open your public Producer URL: `https://onrender.com`
+*   **Mode A (Continuous Stream):** Click **"Start 5-Machine Stream Loop"** to fire randomized fluctuating metrics (`Press-01` to `Press-05`) across the cloud every 1.5 seconds.
+*   **Mode B (Manual Override):** Select a specific Asset ID from the dropdown, input custom values (e.g., `75.0°C`, `150 PSI`), and click **"Fire Targeted Payload Packet"** to simulate an on-the-fly factory floor emergency.
 
-```json
-{
-  "type": "record",
-  "name": "User",
-  "namespace": "com.example",
-  "fields": [
-    {"name": "id", "type": "string"},
-    {"name": "name", "type": "string"},
-    {"name": "email", "type": ["null", "string"], "default": null}
-  ]
-}
-```
-4. Click **Upload**.
-
-### Step 2: Activate the Live Stream Listener (Consumer)
-Open a dedicated terminal tab, activate your virtual environment sandbox, and spin up the backend reader script:
-```bash
-source .venv/bin/activate
-python3 consumer.py
-```
-
-### Step 3: Trigger the Event Stream Engine (Producer)
-Open a separate terminal tab, activate your virtual sandbox, and generate a validated payload event:
-```bash
-source .venv/bin/activate
-python3 producer.py
-```
-*The producer will fetch the schema layout, compress data down to raw binary byte structures, prepend the 5-byte identifier metadata, and fire. The consumer window will instantly capture the record offset partition line!*
-
-### Step 4: Run Real-Time Streaming Analytics inside Apache Flink
-1. Access Flink's interactive query interface:
-   ```bash
-   docker exec -it flink-jobmanager ./bin/sql-client.sh
-   ```
-2. Register the streaming data table layout map parameters inside the SQL console prompt:
-   ```sql
-   CREATE TABLE user_stream (
-       id STRING,
-       name STRING,
-       email STRING
-   ) WITH (
-       'connector' = 'kafka',
-       'topic' = 'user-events',
-       'properties.bootstrap.servers' = 'kafka-broker:9094',
-       'scan.startup.mode' = 'earliest-offset',
-       'format' = 'avro-confluent',
-       'avro-confluent.schema-registry.url' = 'http://apicurio-registry:8080/apis/ccompat/v7'
-   );
-   ```
-3. Initialize the continuous real-time relational analytics engine tracker:
-   ```sql
-   SELECT * FROM user_stream;
-   ```
-*Fire your `producer.py` script again—the values will populate across the analytical Flink processing screen in real time!*
+#### 2. Monitor Pipelines (The Consumer Ingestion Dashboard)
+*   Open your public Ingestion URL: `https://onrender.com`
+*   Watch real-time data flow with short-fingerprint configuration hashes (`v.4c8227fc`).
+*   **Auto-Refresh Toggle:** Click the **`🔄 Auto-Refresh: ON/OFF`** button in the upper right corner to pause the real-time layout stream and safely audit specific data entries without losing your place.
+*   **Smart Logging & Alarms:** Normal states log as green. If an asset breaches limits, a high-visibility red `🚨 ALARM` triggers—highlighting the exact violation while preserving normal metrics context in brackets.
 
 ---
 
-### Cluster Teardown Protocol
-To clear out temporary container structures and safely free up your machine's system memory resources when you are finished testing:
+### ⚙️ How to Evolve Operational Rules (GitOps Loop)
 
-```bash
-# 1. Press Q then type QUIT; inside Flink SQL to exit the client shell.
-# 2. Press Ctrl+C inside your python app tabs, then call:
-deactivate
+To change operational safe limits (e.g., raising max temperature from `40°C` to `60°C`) dynamically without restarting any cloud infrastructure or modifying backend code:
 
-# 3. Destroy background infrastructure services cleanly
-docker compose down
-```
+1.  Open your local repository and edit the **`machine-control.json`** parameters file:
+    ```json
+    {
+      "version": 4,
+      "rules": {
+        "max_safe_temp": 60.0,
+        "max_safe_pressure": 140.0
+      }
+    }
+    ```
+2.  Commit and push the file change directly to your main branch layout:
+    ```bash
+    git add machine-control.json
+    git commit -m "ci: updated safe operational temperature thresholds for factory line"
+    git push origin main
+    ```
+3.  **The Automation Loop:** **GitHub Actions** will instantly wake up, validate the JSON string format, and push the rules up to **Aiven Karapace Registry**.
+4.  **The Result:** Within 10 seconds, the running **Render Ingestion Engine** will pull the updated thumbprint hash, adjust its boundaries live, and update the UI thresholds automatically!
+
+---
+
+### 🔖 Code Milestones (Reference Safety Nets)
+
+*   `v1.0.0-local`: Permanent snapshot of the fully functioning local Docker Compose + Apicurio ecosystem.
+*   `v2.0.0-cloud`: Pristine snapshot of the cloud-native Aiven + Render deployment with interactive Flask web views.
