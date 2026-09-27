@@ -1,7 +1,7 @@
 {
   "version": 3,
   "rules": {
-    "max_safe_temp": 40.0,
+    "max_safe_temp": 50.0,
     "max_safe_pressure": 120.0
   }
 }
