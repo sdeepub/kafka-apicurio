@@ -1,19 +1,18 @@
+version: '3.8'
+
 services:
-  # 1. Apache Kafka Broker (Dual-Listener Configuration)
+  # 1. Apache Kafka Broker (KRaft Mode - Fixed Quorum & Dual Listeners)
   kafka-broker:
     image: apache/kafka:latest
     container_name: kafka-broker
     ports:
-      - "9092:9092"   # Exposed to your host computer for Python scripts
+      - "9092:9092"   # Exposed to host computer for local Python scripts
     environment:
       - KAFKA_NODE_ID=1
       - KAFKA_PROCESS_ROLES=broker,controller
-      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093
-      # 1. Declare two separate entry listeners: INTERNAL and EXTERNAL
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@127.0.0.1:9093 # 👈 Fixed: Swapped to loopback interface for KRaft internal controller checks
       - KAFKA_LISTENERS=INTERNAL://:9094,EXTERNAL://:9092,CONTROLLER://:9093
-      # 2. Tell Kafka how to advertise each network address correctly
       - KAFKA_ADVERTISED_LISTENERS=INTERNAL://kafka-broker:9094,EXTERNAL://localhost:9092
-      # 3. Map the protocols to standard PLAINTEXT security
       - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL
@@ -24,7 +23,9 @@ services:
     image: apicurio/apicurio-registry:3.3.1
     container_name: apicurio-registry
     ports:
-      - "8080:8080"
+      - "8080:8080" # Local scripts hit http://localhost:8080/apis/registry/v3
+    environment:
+      - APICURIO_REGISTRY_STORAGE_KIND=mem # Efficient in-memory mode for development
 
   # 3. Apicurio Registry Web UI Console (v3.3.1)
   apicurio-registry-ui:
@@ -33,11 +34,11 @@ services:
     ports:
       - "8888:8080"
     environment:
-      - REGISTRY_API_URL=http://localhost:8080/apis/registry/v3
+      - REGISTRY_API_URL=http://localhost:8080/apis/registry/v3 # Navigated cleanly via host browser loopbacks
     depends_on:
       - apicurio-registry
 
-  # 4. Kafbat UI Dashboard (Points to the INTERNAL Kafka doorway on port 9094)
+  # 4. Kafbat UI Dashboard (Points to INTERNAL Kafka interface on port 9094)
   kafka-ui:
     image: kafbat/kafka-ui:latest
     container_name: kafka-ui
@@ -46,7 +47,6 @@ services:
     environment:
       - DYNAMIC_CONFIG_ENABLED=true
       - KAFKA_CLUSTERS_0_NAME=local-cluster
-      # Point to the specialized internal network doorway:
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka-broker:9094
       - KAFKA_CLUSTERS_0_SCHEMAREGISTRY=http://apicurio-registry:8080/apis/ccompat/v7
     depends_on:
@@ -60,9 +60,6 @@ services:
     ports:
       - "8081:8081"
     command: jobmanager
-    volumes:
-      - ./flink-sql-connector-kafka-3.1.0-1.18.jar:/opt/flink/lib/flink-sql-connector-kafka-3.1.0-1.18.jar
-      - ./flink-sql-avro-confluent-registry-1.18.1.jar:/opt/flink/lib/flink-sql-avro-confluent-registry-1.18.1.jar
     environment:
       - |
         FLINK_PROPERTIES=
@@ -75,11 +72,36 @@ services:
     depends_on:
       - flink-jobmanager
     command: taskmanager
-    volumes:
-      - ./flink-sql-connector-kafka-3.1.0-1.18.jar:/opt/flink/lib/flink-sql-connector-kafka-3.1.0-1.18.jar
-      - ./flink-sql-avro-confluent-registry-1.18.1.jar:/opt/flink/lib/flink-sql-avro-confluent-registry-1.18.1.jar
     environment:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.numberOfTaskSlots: 2
+
+  # 7. 🌟 NEW: Apache IoTDB Standalone (Columnar Industrial Time-Series Warehouse)
+  iotdb:
+    image: apache/iotdb:1.3.3-standalone
+    container_name: iotdb
+    ports:
+      - "6667:6667"     # Native RPC client access doorway
+      - "18080:18080"   # HTTP REST layout api management portal
+    environment:
+      - CONFIG_NAME=docker
+    volumes:
+      - iotdb_data:/iotdb/data
+      - iotdb_logs:/iotdb/logs
+
+  # 8. 🌟 NEW: Local Visual Analytics Panel (Grafana with Auto-Installed IoTDB Plugin)
+  local-grafana:
+    image: grafana/grafana:11.0.0
+    container_name: local-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_INSTALL_PLUGINS=apache-iotdb-datasource # Automatically installs the official IoTDB data source engine on boot
+    depends_on:
+      - iotdb
+
+volumes:
+  iotdb_data:
+  iotdb_logs:

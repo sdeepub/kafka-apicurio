@@ -1,39 +1,113 @@
-# === Python Virtual Environments ===
+# ============================================================
+# Python
+# ============================================================
+
 .venv/
 venv/
 ENV/
 env/
+
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
 
-# === Large Binary Connectors (Do not push to Git) ===
+# ============================================================
+# Java / Maven
+# ============================================================
+
+**/target/
+*.class
+
+# Maven Shade Plugin output
+**/dependency-reduced-pom.xml
+
+# Compiled/package output
 *.jar
+*.war
+*.ear
 
-# === Temporary & Local Data Dumps ===
-*.avsc_download
-user-schema.avsc.bak
-data/
-outputs/
+# ============================================================
+# Flink / Local Runtime Output
+# ============================================================
+
 logs/
 *.log
+data/
+outputs/
+checkpoints/
+savepoints/
 
-# === System & IDE Configurations ===
+# ============================================================
+# Schema and Temporary Files
+# ============================================================
+
+*.avsc_download
+*.bak
+*.tmp
+*.temp
+
+# Keep this only if all downloaded schema backups should be ignored
+user-schema.avsc.bak
+
+# ============================================================
+# Secrets and Local Configuration
+# ============================================================
+
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.secret
+secrets/
+credentials/
+
+# ============================================================
+# IDEs and Editors
+# ============================================================
+
 .idea/
+*.iml
+
 .vscode/
+.classpath
+.project
+.settings/
+.metadata/
+.history/
+
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
-*.swp
+
+# ============================================================
+# Emacs
+# ============================================================
+
+*~
+\#*\#
+.#*
+*.elc
+
+auto-save-list/
+tramp/
+.emacs.d/workspace/
+
+# ============================================================
+# Operating System
+# ============================================================
+
 .DS_Store
 Thumbs.db
-
-# === Environmental Secrets ===
-.env
-.env.local
-*.pem
-*.key
+Desktop.ini

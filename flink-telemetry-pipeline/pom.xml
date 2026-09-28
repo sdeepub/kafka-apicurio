@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="
+             http://maven.apache.org/POM/4.0.0
+             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>local.home.arpa</groupId>
+    <artifactId>flink-telemetry-pipeline</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <flink.version>1.18.1</flink.version>
+        <kafka.version>3.1.0-1.18</kafka.version>
+        <iotdb.version>1.3.3</iotdb.version>
+    </properties>
+
+    <dependencies>
+        <!-- Flink Core Runtime -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-java</artifactId>
+            <version>${flink.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-streaming-java</artifactId>
+            <version>${flink.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-clients</artifactId>
+            <version>${flink.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Flink Connectors (Kafka & Avro Registry Layouts) -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-kafka</artifactId>
+            <version>${kafka.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-avro-confluent-registry</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.avro</groupId>
+            <artifactId>avro</artifactId>
+            <version>1.11.3</version>
+        </dependency>
+
+        <!-- Apache IoTDB Flink Connector -->
+        <dependency>
+            <groupId>org.apache.iotdb</groupId>
+            <artifactId>flink-iotdb-connector</artifactId>
+            <version>1.2.1</version>
+        </dependency>
+
+	<dependency>
+            <groupId>org.apache.iotdb</groupId>
+            <artifactId>iotdb-session</artifactId>
+            <version>1.2.1</version>
+        </dependency>
+        
+        <!-- Logging Support -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>1.7.36</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+    
+    <build>
+        <plugins>
+            <!-- Fat-JAR Assembly Plugin to produce a bundled deployment jar -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.4.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+			<configuration>
+			    <artifactSet>
+			      <excludes>
+			        <exclude>org.apache.flink:flink-java</exclude>
+			        <exclude>org.apache.flink:flink-streaming-java</exclude>
+			        <exclude>org.apache.flink:flink-clients</exclude>
+			      </excludes>
+			    </artifactSet>
+			    <filters>
+			        <filter>
+			            <artifact>*:*</artifact>
+			            <excludes>
+				        <exclude>META-INF/*.SF</exclude>
+				        <exclude>META-INF/*.DSA</exclude>
+				        <exclude>META-INF/*.RSA</exclude>
+			            </excludes>
+			        </filter>
+			    </filters>
+			    <transformers>
+			        <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+			        <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+			           <mainClass>local.home.arpa.telemetry.TelemetryPipelineJob</mainClass>
+			        </transformer>
+			    </transformers>
+			</configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

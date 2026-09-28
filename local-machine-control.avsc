@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "MachineControlRules",
+  "namespace": "local.home.arpa.control",
+  "fields": [
+    { "name": "version", "type": "string" },
+    { "name": "device_id", "type": "string" },
+    { "name": "max_vibration", "type": "double" },
+    { "name": "max_temperature", "type": "double" },
+    { "name": "max_pressure", "type": "double" },
+    { "name": "rule_profile", "type": "string" }
+  ]
+}

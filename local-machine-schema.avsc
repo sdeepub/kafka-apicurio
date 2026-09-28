@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "MachineTelemetry",
+  "namespace": "local.home.arpa.telemetry",
+  "fields": [
+    { "name": "device_id", "type": "string" },
+    { "name": "timestamp", "type": "long" },
+    { "name": "vibration", "type": "double" },
+    { "name": "temperature", "type": "double" },
+    { "name": "pressure", "type": "double" },
+    { "name": "status", "type": "string" },
+    { "name": "track_in", "type": "long" },
+    { "name": "track_out", "type": "long" },
+    { "name": "run_num", "type": "int" },
+    { "name": "part_id", "type": "string" }
+  ]
+}
