@@ -9,8 +9,8 @@
     { "name": "temperature", "type": "double" },
     { "name": "pressure", "type": "double" },
     { "name": "status", "type": "string" },
-    { "name": "track_in", "type": "long" },
-    { "name": "track_out", "type": "long" },
+    { "name": "track_in", "type": ["null", "long"], "default": null },
+    { "name": "track_out", "type": ["null", "long"], "default": null },
     { "name": "run_num", "type": "int" },
     { "name": "part_id", "type": "string" }
   ]

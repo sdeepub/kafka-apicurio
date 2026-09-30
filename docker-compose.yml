@@ -87,6 +87,7 @@ services:
       - "18080:18080"   # HTTP REST layout api management portal
     environment:
       - CONFIG_NAME=docker
+      - enable_rest_service=true
     volumes:
       - iotdb_data:/iotdb/data
       - iotdb_logs:/iotdb/logs
