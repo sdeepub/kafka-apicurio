@@ -60,10 +60,15 @@ services:
     ports:
       - "8081:8081"
     command: jobmanager
+    volumes:
+      - flink_checkpoints:/opt/flink/checkpoints
+      - flink_savepoints:/opt/flink/savepoints
     environment:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        state.savepoints.dir: file:///opt/flink/savepoints
 
   # 6. Flink TaskManager (Worker Node)
   flink-taskmanager:
@@ -72,11 +77,16 @@ services:
     depends_on:
       - flink-jobmanager
     command: taskmanager
+    volumes:
+      - flink_checkpoints:/opt/flink/checkpoints
+      - flink_savepoints:/opt/flink/savepoints
     environment:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.numberOfTaskSlots: 2
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        state.savepoints.dir: file:///opt/flink/savepoints
 
   # 7. 🌟 NEW: Apache IoTDB Standalone (Columnar Industrial Time-Series Warehouse)
   iotdb:
@@ -88,9 +98,11 @@ services:
     environment:
       - CONFIG_NAME=docker
       - enable_rest_service=true
+      - rest_service_port=18080
     volumes:
       - iotdb_data:/iotdb/data
       - iotdb_logs:/iotdb/logs
+      - ./iotdb-conf/iotdb-system.properties:/iotdb/conf/iotdb-system.properties:ro
 
   # 8. 🌟 NEW: Local Visual Analytics Panel (Grafana with Auto-Installed IoTDB Plugin)
   local-grafana:
@@ -106,3 +118,5 @@ services:
 volumes:
   iotdb_data:
   iotdb_logs:
+  flink_checkpoints:
+  flink_savepoints:
