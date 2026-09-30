@@ -111,3 +111,4 @@ tramp/
 .DS_Store
 Thumbs.db
 Desktop.ini
+.aider*

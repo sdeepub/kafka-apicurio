@@ -1,0 +1,29 @@
+========================================================================
+DEPLOYMENT NOTE: Apache IoTDB REST Service Configuration
+========================================================================
+Date: 2026-09-30
+Milestone Tag: v3.0.0-local-end-to-end
+Project: kafka-apicurio Telemetry Pipeline
+
+Overview:
+To enable real-time visualization panels (e.g., Grafana) to communicate
+with Apache IoTDB (v1.3.3-standalone), the native HTTP REST service must 
+be explicitly activated. By default, this service is disabled or omitted
+from the default image property layers.
+
+Required Changes Applied:
+1. File Location: /iotdb/conf/iotdb-system.properties
+2. Key Configuration Toggles:
+   enable_rest_service=true
+   rest_service_port=18080
+
+Docker Environment Mapping:
+- The underlying image ignores environment variables passed for this property.
+- Fixed permanently by binding a localized 'iotdb-system.properties' file
+  directly into the container volumes block inside 'docker-compose.yml'.
+- Containers bridged using 'iot-net' to allow internal host routing via
+  URL: http://iotdb:18080
+
+Verification Endpoint:
+- Health check verified via: curl http://localhost:18080/ping
+========================================================================
