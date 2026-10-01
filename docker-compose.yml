@@ -61,8 +61,8 @@ services:
       - "8081:8081"
     command: jobmanager
     volumes:
-      - flink_checkpoints:/opt/flink/checkpoints
-      - flink_savepoints:/opt/flink/savepoints
+      - ./flink-data/checkpoints:/opt/flink/checkpoints
+      - ./flink-data/savepoints:/opt/flink/savepoints
     environment:
       - |
         FLINK_PROPERTIES=
@@ -78,8 +78,8 @@ services:
       - flink-jobmanager
     command: taskmanager
     volumes:
-      - flink_checkpoints:/opt/flink/checkpoints
-      - flink_savepoints:/opt/flink/savepoints
+      - ./flink-data/checkpoints:/opt/flink/checkpoints
+      - ./flink-data/savepoints:/opt/flink/savepoints
     environment:
       - |
         FLINK_PROPERTIES=
@@ -118,5 +118,3 @@ services:
 volumes:
   iotdb_data:
   iotdb_logs:
-  flink_checkpoints:
-  flink_savepoints:

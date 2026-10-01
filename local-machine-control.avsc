@@ -4,7 +4,7 @@
   "namespace": "local.home.arpa.control",
   "fields": [
     { "name": "version", "type": "string" },
-    { "name": "device_id", "type": "string" },
+    { "name": "machine_type", "type": "string" },
     { "name": "max_vibration", "type": "double" },
     { "name": "min_vibration", "type": "double" },
     { "name": "max_temperature", "type": "double" },
