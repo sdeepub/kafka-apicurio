@@ -10,20 +10,18 @@ import org.apache.flink.util.Collector;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
- * Decodes machine-telemetry Avro records (Confluent wire format), validating against a reader
- * schema fetched from the registry at startup - no schema is hardcoded in this class. The
- * IoTDB row and the numeric measurement map are both built by walking the record's own schema,
- * so adding/removing a telemetry field requires no code change here.
+ * Decodes PURE SENSOR telemetry (Confluent wire format), reader schema fetched from the
+ * registry at startup - no schema hardcoded here. Unlike the earlier version of this class,
+ * it does NOT build an IoTDB device path or flatten fields into a CSV blob: that now happens
+ * downstream, after context enrichment, because the final row needs run_id/part_no/recipe_name
+ * which aren't known at decode time.
  *
- * device_id / timestamp are a naming CONVENTION this pipeline relies on, not a hardcoded schema.
+ * One instance of this class is constructed per machine-family topic (see TelemetryPipelineJob);
+ * the "topic" constructor derives subject = topic + "-value".
  */
 public class SafeDeserializer implements KafkaRecordDeserializationSchema<TelemetryMessage> {
-
-    private static final String DEVICE_PREFIX = "root.local.home.arpa.press.";
 
     private final String schemaRegistryUrl;
     private final String subject;
@@ -72,14 +70,10 @@ public class SafeDeserializer implements KafkaRecordDeserializationSchema<Teleme
             throw new IllegalArgumentException(
                     "Record is missing required field '" + deviceIdField + "' or '" + timestampField + "'");
         }
-        String deviceId = deviceIdRaw.toString();
-        long ts = ((Number) timestampRaw).longValue();
-        String iotdbDevice = DEVICE_PREFIX + deviceId.replace("-", "_");
 
-        StringBuilder names = new StringBuilder();
-        StringBuilder types = new StringBuilder();
-        StringBuilder values = new StringBuilder();
-        Map<String, Double> numericFields = new HashMap<>();
+        TelemetryMessage m = new TelemetryMessage();
+        m.deviceId = deviceIdRaw.toString();
+        m.timestamp = ((Number) timestampRaw).longValue();
 
         for (Schema.Field f : schema.getFields()) {
             String n = f.name();
@@ -89,24 +83,13 @@ public class SafeDeserializer implements KafkaRecordDeserializationSchema<Teleme
             String t = iotdbType(f.schema());
             if (v == null || t == null) continue;
 
-            if (names.length() > 0) { names.append(','); types.append(','); values.append(','); }
-            names.append(n);
-            types.append(t);
-            values.append(v.toString().replace(',', ';'));
-
+            m.sensorValues.put(n, v.toString().replace(',', ';')); // the IoTDB connector splits on ','
+            m.sensorTypes.put(n, t);
             if (v instanceof Number) {
-                numericFields.put(n, ((Number) v).doubleValue());
+                m.numericFields.put(n, ((Number) v).doubleValue());
             }
         }
-
-        Map<String, String> iotdbFields = new HashMap<>();
-        iotdbFields.put("device", iotdbDevice);
-        iotdbFields.put("timestamp", String.valueOf(ts));
-        iotdbFields.put("measurements", names.toString());
-        iotdbFields.put("types", types.toString());
-        iotdbFields.put("values", values.toString());
-
-        return TelemetryMessage.good(iotdbFields, numericFields, deviceId, ts);
+        return m;
     }
 
     private static String iotdbType(Schema s) {

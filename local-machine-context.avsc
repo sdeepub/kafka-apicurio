@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "MachineContextEvent",
+  "namespace": "local.home.arpa.context",
+  "fields": [
+    { "name": "device_id", "type": "string" },
+    { "name": "event_type", "type": "string" },
+    { "name": "event_timestamp", "type": "long" },
+    { "name": "run_id", "type": ["null", "string"], "default": null },
+    { "name": "part_no", "type": ["null", "string"], "default": null },
+    { "name": "recipe_name", "type": ["null", "string"], "default": null }
+  ]
+}

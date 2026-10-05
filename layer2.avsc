@@ -1,0 +1,72 @@
+Subject: lathe-data (Avro)
+{
+  "type": "record",
+  "name": "LatheData",
+  "fields": [
+    {"name": "spindle_rpm", "type": "float", "doc": "Spindle rotation speed"},
+    {"name": "spindle_temp", "type": "float", "doc": "Spindle temperature (°C)"},
+    {"name": "cutting_force", "type": "float", "doc": "Cutting force (N)"},
+    {"name": "tool_life_hours", "type": "float", "doc": "Tool remaining life (hours)"},
+    {"name": "coolant_pressure", "type": "float", "doc": "Coolant pressure (bar)"},
+    {"name": "work_piece_diameter", "type": ["null", "float"], "default": null}
+  ]
+}
+
+Subject: mill-data (Avro)
+{
+  "type": "record",
+  "name": "MillData",
+  "fields": [
+    {"name": "spindle_rpm", "type": "float"},
+    {"name": "spindle_temp", "type": "float"},
+    {"name": "table_speed_x", "type": "float", "doc": "X-axis speed (mm/min)"},
+    {"name": "table_speed_y", "type": "float", "doc": "Y-axis speed (mm/min)"},
+    {"name": "table_speed_z", "type": "float", "doc": "Z-axis speed (mm/min)"},
+    {"name": "vibration_level", "type": "float", "doc": "Machine vibration (mm/s)"},
+    {"name": "feed_rate", "type": "float", "doc": "Tool feed rate (mm/min)"}
+  ]
+}
+
+Subject: press-data (Avro)
+{
+  "type": "record",
+  "name": "PressData",
+  "fields": [
+    {"name": "hydraulic_pressure", "type": "float", "doc": "Pressure (bar)"},
+    {"name": "pressure_setpoint", "type": "float"},
+    {"name": "stroke_position", "type": "float", "doc": "Stroke position (%)"},
+    {"name": "cycle_time", "type": "float", "doc": "Cycle time (seconds)"},
+    {"name": "stroke_count", "type": "long", "doc": "Total strokes since startup"},
+    {"name": "die_temperature", "type": "float", "doc": "Die temperature (°C)"}
+  ]
+}
+
+Subject: oven-data (Avro)
+{
+  "type": "record",
+  "name": "OvenData",
+  "fields": [
+    {"name": "chamber_temp", "type": "float", "doc": "Chamber temperature (°C)"},
+    {"name": "setpoint_temp", "type": "float"},
+    {"name": "humidity", "type": "float", "doc": "Relative humidity (%)"},
+    {"name": "heating_element_status", "type": "string", "doc": "ON|OFF|DEGRADED"},
+    {"name": "airflow_rate", "type": "float", "doc": "Air circulation (m³/h)"},
+    {"name": "door_position", "type": "string", "doc": "OPEN|CLOSED|AJAR"}
+  ]
+}
+
+Subject: cnc-data (Avro)
+{
+  "type": "record",
+  "name": "CNCData",
+  "fields": [
+    {"name": "spindle_rpm", "type": "float"},
+    {"name": "spindle_temp", "type": "float"},
+    {"name": "axis_x_position", "type": "float", "doc": "X position (mm)"},
+    {"name": "axis_y_position", "type": "float", "doc": "Y position (mm)"},
+    {"name": "axis_z_position", "type": "float", "doc": "Z position (mm)"},
+    {"name": "program_id", "type": ["null", "string"], "default": null},
+    {"name": "program_progress", "type": "float", "doc": "Program progress (%)"},
+    {"name": "estimated_time_remaining", "type": "long", "doc": "Seconds"}
+  ]
+}

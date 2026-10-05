@@ -1,0 +1,85 @@
+Subject: machine-events-envelope (Avro)
+{
+  "type": "record",
+  "name": "MachineEvent",
+  "fields": [
+    // UNIVERSAL HEADER (same for lathe, mill, press, oven, etc.)
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "Unique event identifier (UUID)"
+    },
+    {
+      "name": "machine_id",
+      "type": "string",
+      "doc": "Unique machine identifier (e.g., 'lathe-03', 'mill-north-02')"
+    },
+    {
+      "name": "machine_type",
+      "type": {
+        "type": "enum",
+        "name": "MachineType",
+        "symbols": ["LATHE", "MILL", "PRESS", "OVEN", "CNC", "DRILL", "GRINDER"]
+      },
+      "doc": "Equipment category (determines which schema to apply)"
+    },
+    {
+      "name": "facility_id",
+      "type": "string",
+      "doc": "Plant/factory identifier"
+    },
+    {
+      "name": "production_line",
+      "type": "string",
+      "doc": "Line name (e.g., 'assembly-line-1')"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Event timestamp (unix milliseconds)"
+    },
+    {
+      "name": "sequence_num",
+      "type": "long",
+      "doc": "Message sequence number per machine (for ordering)"
+    },
+
+    // TOOLSET-SPECIFIC PAYLOAD (varies by machine_type)
+    {
+      "name": "toolset_data",
+      "type": [
+        "null",
+        "LatheData",           // ← For LATHE
+        "MillData",            // ← For MILL
+        "PressData",           // ← For PRESS
+        "OvenData",            // ← For OVEN
+        "CNCData"              // ← For CNC
+      ],
+      "default": null,
+      "doc": "Union of toolset-specific payloads"
+    },
+
+    // OPERATIONAL METADATA (shared across all equipment)
+    {
+      "name": "operator_id",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "job_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Production batch/job identifier"
+    },
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "EventStatus",
+        "symbols": ["NORMAL", "WARNING", "ERROR", "MAINTENANCE"]
+      },
+      "doc": "Event severity level"
+    }
+  ]
+}
