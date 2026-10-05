@@ -7,6 +7,7 @@ public class DeviceContext {
     public String partNo;
     public String recipeName;
     public Long trackIn;
+    public long dataPointCount = 0; // running tally of sensor readings seen while this cycle is open
 
     public DeviceContext() {}
 }

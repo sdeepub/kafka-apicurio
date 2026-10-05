@@ -55,8 +55,7 @@ public class TelemetryPipelineJob {
     private static final OutputTag<String> DLQ_TAG = ContextEnrichmentFunction.DLQ_TAG; // shared across operators
     private static final OutputTag<String> ALERT_TAG =
             new OutputTag<String>("machine-alert-stream", TypeInformation.of(String.class));
-    private static final OutputTag<String> INCOMPLETE_TRACK_TAG =
-            new OutputTag<String>("incomplete-track-stream", TypeInformation.of(String.class));
+    private static final OutputTag<String> INCOMPLETE_TRACK_TAG = ContextEnrichmentFunction.INCOMPLETE_TRACK_TAG; // shared
 
     private static final MapStateDescriptor<String, ControlRule> RULES_STATE =
             new MapStateDescriptor<>("control-rules", Types.STRING, TypeInformation.of(ControlRule.class));
@@ -203,8 +202,9 @@ public class TelemetryPipelineJob {
                         .setValueSerializationSchema(new SimpleStringSchema())
                         .build())
                 .build();
-        processed.getSideOutput(INCOMPLETE_TRACK_TAG).sinkTo(incompleteTrackSink)
-                .name("Incomplete-Track-Sink").uid("incomplete-track-sink");
+        enriched.getSideOutput(INCOMPLETE_TRACK_TAG)
+                .union(processed.getSideOutput(INCOMPLETE_TRACK_TAG))
+                .sinkTo(incompleteTrackSink).name("Incomplete-Track-Sink").uid("incomplete-track-sink");
 
         // --- Sink 4: IoTDB ---
         IoTDBSinkOptions opts = new IoTDBSinkOptions();
@@ -251,10 +251,16 @@ public class TelemetryPipelineJob {
             }
 
             if (!m.contextComplete) {
+                // "never_tracked_since_job_start" vs "between_cycles" used to be indistinguishable
+                // (both just meant "state was null") - lastKnownTrackOut now tells them apart.
                 Map<String, Object> quarantined = new LinkedHashMap<>();
                 quarantined.put("device_id", m.deviceId);
                 quarantined.put("timestamp", m.timestamp);
-                quarantined.put("reason", "no_open_context");
+                quarantined.put("reason", m.lastKnownTrackOut != null ? "between_cycles" : "never_tracked_since_job_start");
+                quarantined.put("last_track_out", m.lastKnownTrackOut);
+                if (m.lastKnownTrackOut != null) {
+                    quarantined.put("gap_since_last_track_out_ms", m.timestamp - m.lastKnownTrackOut);
+                }
                 ctx.output(INCOMPLETE_TRACK_TAG, json.writeValueAsString(quarantined));
                 // falls through - still written to IoTDB, still checked below
             }
@@ -295,6 +301,24 @@ public class TelemetryPipelineJob {
                 if (m.partNo != null) append(names, types, values, "part_no", "TEXT", m.partNo);
                 if (m.recipeName != null) append(names, types, values, "recipe_name", "TEXT", m.recipeName);
                 if (m.trackIn != null) append(names, types, values, "track_in", "INT64", String.valueOf(m.trackIn));
+            }
+            // Set only on the synthetic cycle-close marker (see ContextEnrichmentFunction) - gives
+            // IoTDB its own durable, queryable track_out record for playback, independent of
+            // whether any sensor tick happened to land near the cycle's actual closing instant.
+            if (m.trackOut != null) {
+                append(names, types, values, "track_out", "INT64", String.valueOf(m.trackOut));
+            }
+            // Set only on standalone event-anchor rows (TRACK_IN / TRACK_OUT_CLOSE /
+            // TRACK_OUT_ORPHANED) - never on an ordinary sensor reading. Lets a query tell
+            // "this row IS the event itself" apart from "this row merely inherited context".
+            if (m.contextEvent != null) {
+                append(names, types, values, "context_event", "TEXT", m.contextEvent);
+            }
+            // Running tally within the current cycle - set on ordinary readings while a cycle
+            // is open, 0 on TRACK_IN, final count on TRACK_OUT_CLOSE. Lets analysis trace any
+            // calculation back to that reading's exact position within its run.
+            if (m.dataPointCount != null) {
+                append(names, types, values, "data_point_count", "INT64", String.valueOf(m.dataPointCount));
             }
 
             Map<String, String> row = new LinkedHashMap<>();
